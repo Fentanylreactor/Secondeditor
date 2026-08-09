@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cataclysm BN Tile Inspector (Full Config)</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #eee;
+      margin: 0;
+      padding: 16px;
+    }
+    h1 { margin: 0 0 10px 0; font-size: 18px; color: #00ffcc; }
+    .controls {
+      position: sticky;
+      top: 0;
+      background: #1e1e1e;
+      padding: 12px;
+      border-bottom: 2px solid #333;
+      z-index: 100;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input, select {
+      padding: 8px 12px;
+      background: #2b2b2b;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    input { width: 320px; }
+    #status { font-size: 13px; color: #aaa; }
+    
+    #grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    
+    .tile-card {
+      width: 160px;
+      height: 160px;
+      background: #222;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      box-sizing: border-box;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      overflow: hidden;
+    }
+    .tile-card:hover {
+      border-color: #00ffcc;
+      background: #282828;
+    }
+    
+    .sprite-preview {
+      width: 64px;
+      height: 64px;
+      background: #111;
+      border: 1px solid #444;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-image: 
+        linear-gradient(45deg, #1a1a1a 25%, transparent 25%), 
+        linear-gradient(-45deg, #1a1a1a 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #1a1a1a 75%), 
+        linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    }
+    
+    canvas {
+      width: 64px;
+      height: 64px;
+      image-rendering: pixelated;
+      object-fit: contain;
+    }
+
+    .tile-info {
+      width: 100%;
+      font-size: 10px;
+      line-height: 1.3;
+      color: #ccc;
+    }
+    .tile-id {
+      color: #00ffcc;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+    .meta-line {
+      display: flex;
+      justify-content: space-between;
+      color: #aaa;
+    }
+    .meta-line span.val {
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Cataclysm BN Tile Inspector (Full Config)</h1>
+
+  <div class="controls">
+    <input type="text" id="searchInput" placeholder="Search by tile ID..." value="" />
+    <select id="sheetFilter">
+      <option value="ALL">All Sheets</option>
+    </select>
+    <div id="status">Loading tileset...</div>
+  </div>
+
+  <div id="grid"></div>
+
+  <script>
+    // ======================= CONFIGURATION =======================
+    // Direct fetch - no proxy, no token
+    const REPO_BASE = 'https://raw.githubusercontent.com/cataclysmbn/Cataclysm-BN/main/gfx/MSX%2B%2BUnDeadPeopleEdition';
+    const CONFIG_URL = REPO_BASE + '/tile_config.json';
+
+    // ======================= GLOBALS =======================
+    let allSprites = [];
+    let sheetImageCache = {};
+    const sheetFilter = document.getElementById('sheetFilter');
+    const statusDiv = document.getElementById('status');
+
+    // ======================= FETCH HELPER =======================
+    async function fetchDirect(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status} – ${url}`);
+      return res;
+    }
+
+    // ======================= PARSE SPRITE INDICES =======================
+    function extractSpriteIndices(field) {
+      if (field === undefined || field === null) return [];
+      if (typeof field === 'number') return [field];
+      if (Array.isArray(field)) {
+        if (field.length > 0 && typeof field[0] === 'number') return field;
+        const indices = [];
+        for (const item of field) {
+          if (item && typeof item === 'object' && 'sprite' in item) {
+            const val = item.sprite;
+            if (typeof val === 'number') indices.push(val);
+          }
+        }
+        return indices;
+      }
+      return [];
+    }
+
+    // ======================= LOAD CONFIG AND SHEETS =======================
+    async function init() {
+      statusDiv.innerText = 'Fetching tile_config.json...';
+      try {
+        // 1. Get config
+        const configRes = await fetchDirect(CONFIG_URL);
+        const config = await configRes.json();
+
+        // 2. Gather all sheet definitions
+        const sheetDefs = [];
+        if (config.tiles && Array.isArray(config.tiles)) {
+          config.tiles.forEach(t => {
+            if (t.file) sheetDefs.push({
+              file: t.file,
+              offset: t.offset || 0,
+              sprite_width: t.sprite_width || 32,
+              sprite_height: t.sprite_height || 32,
+              sprite_offset_x: t.sprite_offset_x || 0,
+              sprite_offset_y: t.sprite_offset_y || 0
+            });
+          });
+        }
+        if (config['tiles-new'] && Array.isArray(config['tiles-new'])) {
+          config['tiles-new'].forEach(t => {
+            if (t.file) sheetDefs.push({
+              file: t.file,
+              offset: t.offset || 0,
+              sprite_width: t.sprite_width || 32,
+              sprite_height: t.sprite_height || 32,
+              sprite_offset_x: t.sprite_offset_x || 0,
+              sprite_offset_y: t.sprite_offset_y || 0
+            });
+          });
+        }
+
+        // 3. Load all unique sheet images
+        const uniqueFiles = [...new Set(sheetDefs.map(s => s.file))];
+        statusDiv.innerText = `Loading ${uniqueFiles.length} sheets...`;
+        
+        for (const file of uniqueFiles) {
+          const img = new Image();
+          const url = REPO_BASE + '/' + file;
+          img.src = url;
+          await img.decode();
+          sheetImageCache[file] = img;
+        }
+
+        // 4. Build sheet info map
+        const sheetInfo = {};
+        sheetDefs.forEach(def => {
+          const img = sheetImageCache[def.file];
+          if (!img) return;
+          const cols = Math.floor(img.width / def.sprite_width);
+          sheetInfo[def.file] = {
+            offset: def.offset || 0,
+            w: def.sprite_width,
+            h: def.sprite_height,
+            cols: cols,
+            image: img,
+            file: def.file
+          };
+        });
+
+        // Helper to register a sprite
+        const registerSprite = (baseId, subType, spriteIndex, sheetName) => {
+          if (spriteIndex === undefined || spriteIndex === null) return;
+          if (typeof spriteIndex !== 'number') return;
+          const info = sheetInfo[sheetName];
+          if (!info) return;
+          const idx = spriteIndex + info.offset;
+          const col = idx % info.cols;
+          const row = Math.floor(idx / info.cols);
+          const pixelX = col * info.w;
+          const pixelY = row * info.h;
+          const fullId = subType ? `${baseId} [${subType}]` : baseId;
+          allSprites.push({
+            fullId,
+            baseId,
+            subType,
+            index: spriteIndex,
+            col, row,
+            pixelX, pixelY,
+            w: info.w,
+            h: info.h,
+            sheetName,
+            image: info.image
+          });
+        };
+
+        // Process a single tile definition
+        const processTile = (tile, sheetName) => {
+          const primaryId = Array.isArray(tile.id) ? tile.id[0] : tile.id;
+          if (!primaryId) return;
+
+          const processField = (field, subType) => {
+            const indices = extractSpriteIndices(field);
+            indices.forEach(idx => registerSprite(primaryId, subType, idx, sheetName));
+          };
+
+          processField(tile.fg, null);
+          processField(tile.bg, 'bg');
+
+          if (tile.additional_tiles && Array.isArray(tile.additional_tiles)) {
+            tile.additional_tiles.forEach(sub => {
+              const subId = sub.id || 'sub';
+              processField(sub.fg, subId);
+              processField(sub.bg, `${subId}_bg`);
+            });
+          }
+        };
+
+        // Process top-level "tiles"
+        const firstSheet = Object.keys(sheetInfo)[0];
+        if (config.tiles && Array.isArray(config.tiles) && firstSheet) {
+          config.tiles.forEach(tile => processTile(tile, firstSheet));
+        }
+
+        // Process "tiles-new" sections
+        if (config['tiles-new'] && Array.isArray(config['tiles-new'])) {
+          config['tiles-new'].forEach(nt => {
+            const sheetName = nt.file;
+            if (!sheetInfo[sheetName]) return;
+            if (nt.tiles && Array.isArray(nt.tiles)) {
+              nt.tiles.forEach(tile => processTile(tile, sheetName));
+            }
+          });
+        }
+
+        // 5. Populate sheet filter dropdown
+        const sheetNames = Object.keys(sheetInfo);
+        sheetFilter.innerHTML = '<option value="ALL">All Sheets</option>';
+        sheetNames.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sheetFilter.appendChild(opt);
+        });
+
+        statusDiv.innerText = `Loaded ${allSprites.length} sprite entries from ${sheetNames.length} sheets.`;
+        render();
+
+      } catch (err) {
+        console.error(err);
+        statusDiv.innerText = `Error: ${err.message}`;
+      }
+    }
+
+    // ======================= RENDER =======================
+    function render() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+      const selectedSheet = sheetFilter.value;
+
+      const filtered = allSprites.filter(item => {
+        const matchesQuery = !query || item.fullId.toLowerCase().includes(query) || item.index.toString() === query;
+        const matchesSheet = selectedSheet === 'ALL' || item.sheetName === selectedSheet;
+        return matchesQuery && matchesSheet;
+      });
+
+      const displayList = filtered.slice(0, 10);
+
+      displayList.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'tile-card';
+
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'sprite-preview';
+
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(64 / item.w, 64 / item.h, 1);
+        canvas.width = item.w * scale;
+        canvas.height = item.h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          item.image,
+          item.pixelX, item.pixelY, item.w, item.h,
+          0, 0, canvas.width, canvas.height
+        );
+        canvas.style.maxWidth = '64px';
+        canvas.style.maxHeight = '64px';
+        canvas.style.imageRendering = 'pixelated';
+
+        previewContainer.appendChild(canvas);
+
+        const info = document.createElement('div');
+        info.className = 'tile-info';
+        info.innerHTML = `
+          <div class="tile-id" title="${item.fullId}">${item.fullId}</div>
+          <div class="meta-line"><span>Index:</span> <span class="val">${item.index}</span></div>
+          <div class="meta-line"><span>Col, Row:</span> <span class="val">${item.col}, ${item.row}</span></div>
+          <div class="meta-line"><span>Pixel:</span> <span class="val">${item.pixelX}, ${item.pixelY}</span></div>
+          <div class="meta-line"><span>Size:</span> <span class="val">${item.w}×${item.h}</span></div>
+        `;
+
+        card.appendChild(previewContainer);
+        card.appendChild(info);
+        grid.appendChild(card);
+      });
+
+      if (filtered.length > 10) {
+        const notice = document.createElement('div');
+        notice.style.width = '100%';
+        notice.style.color = '#ffcc00';
+        notice.style.fontSize = '12px';
+        notice.innerText = `Showing first 10 of ${filtered.length} matches. Refine your search.`;
+        grid.insertBefore(notice, grid.firstChild);
+      }
+    }
+
+    // ======================= EVENT BINDING =======================
+    document.getElementById('searchInput').addEventListener('input', render);
+    sheetFilter.addEventListener('change', render);
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

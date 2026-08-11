@@ -266,13 +266,27 @@
     <div class="bg-gray-800 border-2 border-blue-500 p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 text-white">
         <h2 class="text-2xl font-bold mb-4 border-b border-gray-600 pb-2 text-blue-400">Read this real quick!</h2>
         <p class="mb-4 text-gray-300">
-            NOTE (for now) : Z levels and multi chunk are now compatible. Most of the other things work with z levels from what i can tell. If any issues ping Sai/Fentanylreactor in the discord. 
+            NOTE (for now) : Z levels and multi chunk are now compatible. Most of the other things work with z levels from what i can tell. If you have any issues or bugs or feature requests: ping Ketaminereactor/Sai (id: 1371205642643308586) in the discord!
         </p>
         <ul class="text-sm text-gray-400 mb-6 list-disc list-inside space-y-2">
-            <li>Palette on the right, hold brush/right click for extra functions. Left has options for grid, and selector, inspector(Quick add monster/item!) and Room tool(Rooms!!!) are lifesavers.</li>
-            <li>Selector tool is your main bread and butter, it supports copy and paste of entire areas, it allows zone monster and zone item placements.</li>
-            <li>For fellow mobile users, Dpad is a lifesaver, can be toggled off for PC.</li>
-            <li>Supports Palette importing and map importing, if map has a palette defined first import that palette and it should work.</li>
+            <li>Use The +/- buttons to add new layers. Extrude copies tile layout(walls and floors get copied on the new floor)</li>
+            <li>Clear layer: empty an entire layer. Delete removes it permanently so it won't show up in final export. You can remake it from scratch but useful for floating structures. Also leaving the tiles on a layer untouched = it does not get exported!</li>
+            <li>Undo button for undoing the last 3 actions. Whether room creation or accidental strokes.</li>
+            <li>You can import palettes and SOME buildings depending on their formatting. Saves a hell of a lot of time.</li>
+            <li>Selector tool: drag to select area. Can copy it. Can paste it by holding. Monster and item placement can be done using these selected areas. Vehicles can only be placed inside of a sufficiently big selected area.</li>
+            <li>Inspector: For specific tile coords. Allows monster and item placement on specific tiles but usually better to use selector.</li>
+            <li>Room tool: rectangles and circles. Can set symbols of wall and floor from palette.</li>
+            <li>ALL 3 are fetched live from the main repo:</li>
+            <li>Monster placement supports both groups and single monsters. Has search bar for quick filtering.</li>
+            <li>itemgroups, same as above.</li>
+            <li>Note about vehicles: they cannot overlap with other vehicles.</li>
+            <li>place items allows filling areas with items</li>
+            <li>items allows spawning specific items on specific tiles. Like ammo in safes. </li>
+            <li>Can bide And erase each entry as needed. Helps with visual clarity.</li>
+            <li>Fuzzy brush: randomised brush using multiple terrains and furnitures. Broken walls with the occasional intact one.</li>
+            <li>You Can also generate nested for use in other mapgen. </li>
+            <li>Reference image : just a nice little blueprint if you use battlemaps or similar.</li>
+            <li>Furniture opacity slider so you can see which terrain is under it. No random grass in the middle of a house.</li>
         </ul>
         <button onclick="closeWelcomeModal()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded transition-colors">
             Cowabunga? 
@@ -293,6 +307,9 @@
     <div class="flex gap-2">
         <button onclick="extrudeUp()" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded shadow-lg transition-all">EXTRUDE UP</button>
         <button onclick="extrudeDown()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-lg transition-all">EXTRUDE DOWN</button>
+        <button onclick="clearCurrentLayer()" class="px-3 py-1 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded shadow-lg transition-all">EMPTY LAYER</button>
+        <button onclick="deleteCurrentLayer()" class="px-3 py-1 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded shadow-lg transition-all">DELETE LAYER</button>
+</div>
     </div>
 </div>
 
@@ -343,9 +360,13 @@
 <div class="p-3 bg-green-700 rounded-lg shadow-inner mb-4">
     <h3 class="text-md font-semibold text-white border-b border-green-500 pb-1">Monster Spawns (`place_monster`)</h3>
     <div class="mb-2 mt-2">
-         <select id="monster-preset-select" class="w-full p-1 rounded bg-green-800 border border-green-600 text-gray-100 text-xs">
+         <div class="mb-2 mt-2">
+        <input type="text" id="monster-group-search" placeholder="Search monsters/groups..." 
+            class="w-full p-1 rounded bg-green-900 border border-green-600 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-yellow-500 mb-1">
+        <select id="monster-preset-select" class="w-full p-1 rounded bg-green-800 border border-green-600 text-gray-100 text-xs">
             <option value="">-- Load Preset (Optional) --</option>
         </select>
+    </div>
     </div>
     <div class="grid grid-cols-3 gap-2 mt-2 text-sm">
         <input type="text" id="monster-symbol-input" class="p-1 rounded bg-green-800 border border-green-600 text-gray-100 text-center font-mono" placeholder="Symbol">
@@ -363,7 +384,9 @@
 <div class="p-3 bg-orange-700 rounded-lg shadow-inner mb-4">
     <h3 class="text-md font-semibold text-white border-b border-orange-500 pb-1">Vehicles (`place_vehicles`)</h3>
     <div class="mb-2 mt-2">
-         <select id="vehicle-preset-select" class="w-full p-1 rounded bg-orange-800 border border-orange-600 text-gray-100 text-xs">
+        <input type="text" id="vehicle-search" placeholder="Search vehicles..." 
+            class="w-full p-1 rounded bg-orange-900 border border-orange-600 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-yellow-500 mb-1">
+        <select id="vehicle-preset-select" class="w-full p-1 rounded bg-orange-800 border border-orange-600 text-gray-100 text-xs">
             <option value="">-- Load Vehicle (Importer) --</option>
         </select>
     </div>
@@ -1752,7 +1775,51 @@ document.getElementById('place-item-preset-select')?.addEventListener('change', 
     return '#' + ((1 << 24) + (mixedR << 16) + (mixedG << 8) + mixedB).toString(16).slice(1);
 }
         
-        
+        // --- MONSTER SEARCH FILTER ---
+document.getElementById('monster-group-search')?.addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const select = document.getElementById('monster-preset-select');
+    if (!select) return;
+
+    // Keep the default option
+    select.innerHTML = '<option value="">-- Load Preset (Optional) --</option>';
+
+    // Filter the monsterPresets array (already populated from GitHub)
+    const filtered = monsterPresets.filter(preset => {
+        const nameMatch = (preset.name || preset.id || "").toLowerCase().includes(term);
+        const idMatch = (preset.id || "").toLowerCase().includes(term);
+        return nameMatch || idMatch;
+    });
+
+    filtered.forEach(preset => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(preset);
+        opt.textContent = `${preset.name} (${preset.id})`;
+        select.appendChild(opt);
+    });
+});
+
+// --- VEHICLE SEARCH FILTER ---
+document.getElementById('vehicle-search')?.addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const select = document.getElementById('vehicle-preset-select');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Select a Vehicle --</option>';
+
+    const filtered = vehiclePresets.filter(preset => {
+        const nameMatch = (preset.name || preset.id || "").toLowerCase().includes(term);
+        const idMatch = (preset.id || "").toLowerCase().includes(term);
+        return nameMatch || idMatch;
+    });
+
+    filtered.forEach(preset => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(preset);
+        opt.textContent = `${preset.name} (${preset.id}) [${preset.boundingBox.width}x${preset.boundingBox.height}]`;
+        select.appendChild(opt);
+    });
+});
 
         function parseCoordInput(input) {
             if (!input) return null;
@@ -2435,7 +2502,64 @@ if (Object.keys(itemsObject).length > 0) {
 
     return JSON.stringify([jsonSpecial, jsonMapgen, jsonOvermapTerrain], null, 4);
 }
+function deleteCurrentLayer() {
+    const z = currentZ;
 
+    // Prevent accidentally deleting the base layer
+    if (z === 0) {
+        if (!confirm("You are about to DELETE Z-Level 0 (the ground floor). This layer holds all your base terrain. Are you sure?")) {
+            return;
+        }
+    } else {
+        if (!confirm(`Are you sure you want to permanently DELETE Z-Level ${z} and all its content from the export?`)) {
+            return;
+        }
+    }
+
+    // Check if this is the only layer left
+    const layerKeys = Object.keys(layers);
+    if (layerKeys.length <= 1) {
+        updateStatus("Cannot delete the last remaining layer. Use 'Clear Map' to reset it.", "text-yellow-400");
+        return;
+    }
+
+    // 1. Permanently remove this layer from the `layers` object
+    delete layers[z];
+
+    // 2. Find the nearest valid layer to switch to
+    let newZ = null;
+    // Try going down first (e.g., Z=5 -> Z=4, then 3...)
+    for (let testZ = z - 1; testZ >= -100; testZ--) {
+        if (layers[testZ] !== undefined) { newZ = testZ; break; }
+    }
+    // If nothing lower exists, pick the highest available
+    if (newZ === null) {
+        const sortedKeys = Object.keys(layers).map(Number).sort((a, b) => b - a);
+        newZ = sortedKeys[0];
+    }
+
+    // 3. Switch to the new layer (manually reload all globals)
+    currentZ = newZ;
+    mapGrid = layers[currentZ].grid;
+    terrainGrid = layers[currentZ].terrainGrid;
+    monsterSpawns = layers[currentZ].monsters;
+    itemSpawns = layers[currentZ].items;
+    placeItemsSpawns = layers[currentZ].placedItems;
+    vehicleSpawns = layers[currentZ].vehicles || [];
+
+    // 4. Update definitions (palette + custom brushes)
+    tileDefinitions = { ...layers[currentZ].paletteDefs, ...layers[currentZ].customDefs };
+    delete tileDefinitions[DEFAULT_TILE];
+    tileDefinitions = { ...MASTER_TILE_DEFINITIONS, ...tileDefinitions };
+
+    // 5. Refresh the UI
+    document.getElementById('z-level-display').innerText = currentZ;
+    renderPalette();
+    renderGrid();
+    refreshSpawnLists();
+
+    updateStatus(`✅ Deleted Z-Level ${z}. Switched to Z-Level ${currentZ}. It will NOT appear in exports.`, "text-red-400");
+}
         function downloadJsonFile() {
             const json = generateMapJson();
             const filename = `${mapNameInput.value.trim() || 'new_map'}.json`;
@@ -3017,7 +3141,32 @@ if (paletteObject.furniture) Object.entries(paletteObject.furniture).forEach(([s
             };
             reader.readAsText(file);
         });
+        
+function clearCurrentLayer() {
+    // Confirm to prevent accidental wipe
+    if (!confirm(`Are you sure you want to clear all tiles and spawns on Z-level ${currentZ}?`)) {
+        return;
+    }
 
+    // Clear the main grid (tiles) and terrain grid
+    for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+            mapGrid[r][c] = DEFAULT_TILE;
+            terrainGrid[r][c] = DEFAULT_TILE;
+        }
+    }
+
+    // Clear spawns on this layer (the arrays are direct references)
+    monsterSpawns.length = 0;
+    itemSpawns.length = 0;
+    placeItemsSpawns.length = 0;
+    vehicleSpawns.length = 0;
+
+    // Update UI
+    renderGrid();
+    refreshSpawnLists();
+    updateStatus(`Layer ${currentZ} cleared.`, "text-red-400");
+}
 function openBrushEditor(symbol) {
     const def = tileDefinitions[symbol] || MASTER_TILE_DEFINITIONS[symbol];
     if (!def) return;
@@ -4692,20 +4841,22 @@ function downloadExport() {
     const mapgenObjects = [];
     const overmapSpecialEntries = [];
     const allOvermapTerrainIds = [];
+    
 
     Object.keys(layers).forEach(zKey => {
         const z = parseInt(zKey);
         const l = layers[zKey];
         const grid = l.grid;
-        
-        const chunksY = grid.length / 24;
-        const chunksX = grid[0].length / 24;
-       
         const isEmpty = grid.every(row => row.every(cell => cell === DEFAULT_TILE));
         if (isEmpty) {
             console.log(`Skipping Level ${z} (Empty)`);
             return;
         }
+        
+        const chunksY = grid.length / 24;
+        const chunksX = grid[0].length / 24;
+       
+        
 
         // Build 2D array of chunk IDs
         const omTerrain2D = [];

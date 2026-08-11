@@ -416,7 +416,9 @@
         </select> 
     </div>
     <div class="grid grid-cols-3 gap-2 mt-3 text-sm">
-        <input type="text" id="item-symbol-input" class="p-1 rounded bg-blue-800 border border-blue-600 text-gray-100 text-center font-mono" placeholder="Symbol">
+        <select id="item-symbol-select" class="p-1 rounded bg-blue-800 border border-blue-600 text-gray-100 text-center font-mono">
+    <option value="">-- Select --</option>
+</select>
         <input type="text" id="item-group-input" class="col-span-2 p-1 rounded bg-blue-800 border border-blue-600 text-gray-100 font-mono text-xs" placeholder="item_group">
         <input type="number" id="item-chance-input" class="col-span-2 p-1 rounded bg-blue-800 border border-blue-600 text-gray-100 font-mono text-xs" placeholder="Chance (e.g., 70)">
         <input type="text" id="item-repeat-input" class="p-1 rounded bg-blue-800 border border-blue-600 text-gray-100 font-mono text-xs" placeholder="Repeat">
@@ -1183,46 +1185,43 @@ async function fetchAllSingleVehicles() {
         updateStatus("Scanning branch for individual vehicles...", "text-blue-400");
 
         const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`;
-        
         const response = await fetch(apiUrl);
         if (!response.ok) throw new Error("Branch not found or API limit reached");
-        
         const result = await response.json();
 
         for (const leaf of result.tree) {
             const pathLower = leaf.path.toLowerCase();
-            
-            // Only look in the vehicles data directory
             if (pathLower.includes("data/json/vehicles") && pathLower.endsWith(".json")) {
-                
                 const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${leaf.path}`;
-                
                 const fileResponse = await fetch(rawUrl);
                 if (!fileResponse.ok) continue;
-                
                 const data = await fileResponse.json();
                 const items = Array.isArray(data) ? data : [data];
 
                 items.forEach(item => {
-                    // Match "VEHICLE" or "vehicle", ensuring it has an ID and a parts array
                     if (item.type && item.type.toUpperCase() === "VEHICLE" && item.id) {
-                        
-                        // Extract Name cleanly (String or translation object)
-                        let vehicleName = item.id; 
+                        // Extract name
+                        let vehicleName = item.id;
                         if (item.name && typeof item.name === "object" && item.name.str) {
                             vehicleName = item.name.str;
                         } else if (typeof item.name === "string") {
                             vehicleName = item.name;
                         }
 
-                        // --- BOUNDING BOX CALCULATION ---
+                        // --- FILTER OUT vehicles with "wreck" or "scenario" ---
+                        const lowerId = item.id.toLowerCase();
+                        const lowerName = vehicleName.toLowerCase();
+                        if (lowerId.includes('wreck') || lowerId.includes('scenario') ||
+                            lowerName.includes('wreck') || lowerName.includes('scenario')) {
+                            return; // skip this vehicle
+                        }
+
+                        // ... rest of bounding box calculation ...
                         let minX = 0, maxX = 0, minY = 0, maxY = 0;
                         let hasParts = false;
-
                         if (item.parts && Array.isArray(item.parts)) {
                             hasParts = true;
                             item.parts.forEach(part => {
-                                // Cataclysm parts use offset grids relative to an internal anchor point
                                 if (typeof part.x === "number") {
                                     if (part.x < minX) minX = part.x;
                                     if (part.x > maxX) maxX = part.x;
@@ -1233,15 +1232,11 @@ async function fetchAllSingleVehicles() {
                                 }
                             });
                         }
-
-                        // If it has no parts array (abstract base templates), skip it
                         if (!hasParts) return;
 
-                        // Calculate absolute width and height boundaries
                         const requiredWidth = (maxX - minX) + 1;
                         const requiredHeight = (maxY - minY) + 1;
 
-                        // Store only the essential details you requested
                         const processedVehicle = {
                             id: item.id,
                             name: vehicleName,
@@ -1253,16 +1248,14 @@ async function fetchAllSingleVehicles() {
 
                         fetchedVehicles[item.id] = processedVehicle;
                         vehiclePresets.push(processedVehicle);
-                    } 
+                    }
                 });
             }
         }
 
-        // Sort alphabetically by clean name
         vehiclePresets.sort((a, b) => a.name.localeCompare(b.name));
-
-        renderVehiclePresetDropdown(); 
-        updateStatus(`Imported ${vehiclePresets.length} individual vehicles with bounds mapped.`, "text-green-400");
+        renderVehiclePresetDropdown();
+        updateStatus(`Imported ${vehiclePresets.length} individual vehicles (filtered).`, "text-green-400");
 
     } catch (err) {
         console.error(err);
@@ -1276,9 +1269,9 @@ function renderVehiclePresetDropdown() {
 
     vehiclePresets.forEach(preset => {
         const opt = document.createElement('option');
-        opt.value = JSON.stringify(preset); 
-        // Example text: "Bicycle (id: bicycle) [Size: 3x1]"
-        opt.textContent = `${preset.name} [${preset.boundingBox.width}x${preset.boundingBox.height}]`; 
+        opt.value = JSON.stringify(preset);
+        // Show: "Name (id) [WxH]"
+        opt.textContent = `${preset.name} (${preset.id}) [${preset.boundingBox.width}x${preset.boundingBox.height}]`;
         vehiclePresetSelect.appendChild(opt);
     });
 }
@@ -1681,7 +1674,15 @@ itemPresetSelect.addEventListener('change', (e) => {
     itemGroupInput.value = data.group;
     itemChanceInput.value = data.chance;
     itemRepeatInput.value = data.repeat;
-    if(itemSymbolInput.value === '') itemSymbolInput.value = 'i';
+    const select = document.getElementById('item-symbol-select');
+if (select) {
+    // Try to set to '.', if not available, set to first non-empty option
+    if ([...select.options].some(o => o.value === 'i')) {
+        select.value = '.';
+    } else if (select.options.length > 1) {
+        select.value = select.options[1].value; // first real symbol
+    }
+}
     
     const fullGroupData = fetchedItemGroups[data.group];
     
@@ -1827,7 +1828,7 @@ function renderGrid(forceRebuild = false) {
             paintTile(r, c, tile, false); 
         }
     }
-    
+    updateItemSymbolDropdown();
     drawChunkBorders(); 
 }
 
@@ -2113,15 +2114,41 @@ function clearRoomVisuals() { clearOverlay(); }
 });
 
         function initializeGrid(newRows = GRID_ROWS, newCols = GRID_COLS, clearGrid = true) {
-    const dimensionsChanged = (newRows !== GRID_ROWS || newCols !== GRID_COLS);
+    const oldRows = GRID_ROWS;
+    const oldCols = GRID_COLS;
     GRID_ROWS = newRows;
     GRID_COLS = newCols;
 
-    if (clearGrid) {
-        mapGrid = Array(GRID_ROWS).fill(0).map(() => Array(GRID_COLS).fill(DEFAULT_TILE));
-        terrainGrid = Array(GRID_ROWS).fill(0).map(() => Array(GRID_COLS).fill(DEFAULT_TILE));
+    // Helper to expand a grid to the new global dimensions
+    const expandGrid = (grid) => {
+        const rows = grid.length;
+        const cols = grid[0] ? grid[0].length : 0;
+        if (rows === newRows && cols === newCols) return grid;
+        const newGrid = Array(newRows).fill(0).map((_, r) =>
+            Array(newCols).fill(0).map((__, c) =>
+                (r < rows && c < cols) ? grid[r][c] : DEFAULT_TILE
+            )
+        );
+        return newGrid;
+    };
 
-        // Reset other things
+    if (clearGrid) {
+        // Reset all layers to new dimensions
+        Object.keys(layers).forEach(z => {
+            const layer = layers[z];
+            layer.grid = Array(newRows).fill(0).map(() => Array(newCols).fill(DEFAULT_TILE));
+            layer.terrainGrid = Array(newRows).fill(0).map(() => Array(newCols).fill(DEFAULT_TILE));
+            // Keep spawns? Usually you'd reset them too, but we'll keep your current behaviour:
+            // In your existing clear branch, you reset spawns and other things.
+            // We'll do that outside the loop for the current layer, but we also need to reset all layers' spawns?
+            // For simplicity, we'll keep the spawns reset only for the current layer, as you originally did.
+        });
+        // Reset current layer's other stuff (spawns, etc.) as before
+        mapGrid = layers[currentZ].grid;
+        terrainGrid = layers[currentZ].terrainGrid;
+        // ... (your existing reset logic for spawns, inputs, etc.)
+        // Since you already have that code in the clear branch, keep it.
+        // I'll copy the important parts from your original clear branch:
         tileDefinitions = JSON.parse(JSON.stringify(MASTER_TILE_DEFINITIONS));
         selectedTile = DEFAULT_TILE;
         monsterSpawns.length = 0;
@@ -2132,7 +2159,6 @@ function clearRoomVisuals() { clearOverlay(); }
         renderPlaceItemsSpawnList();
         vehicleSpawns.length = 0;
         renderVehicleSpawnList();
-
         document.getElementById('map-name-input').value = 'hospital';
         document.getElementById('om-terrain-input').value = 'hospital_grounds';
         document.getElementById('weight-input').value = '100';
@@ -2141,34 +2167,24 @@ function clearRoomVisuals() { clearOverlay(); }
         document.getElementById('brush-height-input').value = '1';
         brushWidth = 1;
         brushHeight = 1;
-
         updateStatus("New map initialized.", 'text-green-400');
     } else {
-        // Resize preserving existing data
-        const oldMapGrid = mapGrid;
-        const oldTerrainGrid = terrainGrid;
-        const oldRows = oldMapGrid.length;
-        const oldCols = oldMapGrid[0] ? oldMapGrid[0].length : 0;
-
-        mapGrid = Array(GRID_ROWS).fill(0).map((_, r) =>
-            Array(GRID_COLS).fill(0).map((__, c) =>
-                (r < oldRows && c < oldCols) ? oldMapGrid[r][c] : DEFAULT_TILE
-            )
-        );
-        terrainGrid = Array(GRID_ROWS).fill(0).map((_, r) =>
-            Array(GRID_COLS).fill(0).map((__, c) =>
-                (r < oldRows && c < oldCols) ? oldTerrainGrid[r][c] : DEFAULT_TILE
-            )
-        );
+        // Resize all layers to the new dimensions
+        Object.keys(layers).forEach(z => {
+            const layer = layers[z];
+            layer.grid = expandGrid(layer.grid);
+            layer.terrainGrid = expandGrid(layer.terrainGrid);
+        });
+        // Update current layer pointers
+        mapGrid = layers[currentZ].grid;
+        terrainGrid = layers[currentZ].terrainGrid;
+        // No need to reset spawns, they stay as they were
     }
 
-    // Store in layer
-    if (!layers[currentZ]) layers[currentZ] = {};
-    layers[currentZ].grid = mapGrid;
-    layers[currentZ].terrainGrid = terrainGrid;
-
+    // Store in layer (already done above)
+    // Render and UI updates
     renderPalette();
-    renderGrid(dimensionsChanged || clearGrid);
+    renderGrid(true); // force full rebuild
     toggleSpecialSettings();
     gridRowsInput.value = GRID_ROWS;
     gridColsInput.value = GRID_COLS;
@@ -2366,7 +2382,32 @@ function resizeCanvas() {
     // Add spawns if any
     const stripHidden = (arr) => arr.map(({ hidden, ...rest }) => rest);
     if (monsterSpawns.length > 0) jsonMapgen.object.place_monster = monsterSpawns;
-    if (itemSpawns.length > 0) jsonMapgen.object.place_items = itemSpawns;
+    // Build items (symbol-based) as an object
+const itemsObject = {};
+if (itemSpawns.length > 0) {
+    for (const spawn of itemSpawns) {
+        const sym = spawn.symbol || 'i';
+        if (!itemsObject[sym]) itemsObject[sym] = [];
+        // The game accepts an array of items per symbol
+        itemsObject[sym].push({
+            item: spawn.group,
+            chance: spawn.chance || 100,
+            repeat: spawn.repeat || 1
+        });
+    }
+    // If a symbol has only one item, we can store it directly (not as an array)
+    // but array works too. We'll simplify by storing the first item if only one.
+    for (const sym in itemsObject) {
+        if (itemsObject[sym].length === 1) {
+            itemsObject[sym] = itemsObject[sym][0];
+        }
+    }
+}
+
+// Then add it to the mapgen object:
+if (Object.keys(itemsObject).length > 0) {
+    mapgenPayload.items = itemsObject;
+} 
     if (placeItemsSpawns.length > 0) jsonMapgen.object.place_items = placeItemsSpawns;
     if (vehicleSpawns && vehicleSpawns.length > 0) {
         jsonMapgen.object.place_vehicles = vehicleSpawns
@@ -2572,6 +2613,47 @@ if (!layers[z]) {
             };
             reader.readAsText(file);
         });
+       
+       function updateItemSymbolDropdown() {
+    const select = document.getElementById('item-symbol-select');
+    if (!select) return;
+    
+    const symbols = new Set();
+    for (let r = 0; r < mapGrid.length; r++) {
+        for (let c = 0; c < mapGrid[r].length; c++) {
+            const sym = mapGrid[r][c];
+            if (sym && sym !== DEFAULT_TILE) symbols.add(sym);
+        }
+    }
+    
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Select --</option>';
+    
+    const allBrushes = { ...MASTER_TILE_DEFINITIONS, ...tileDefinitions };
+    const sorted = Array.from(symbols).sort();
+    
+    for (const sym of sorted) {
+        const opt = document.createElement('option');
+        opt.value = sym;
+        
+        // Get definition and friendly name
+        const def = allBrushes[sym];
+        let label = sym;
+        if (def && def.definition && def.definition !== 'unknown') {
+            const friendlyName = getFriendlyName(def.definition);
+            label = `${sym} – ${friendlyName} (${def.definition})`;
+        } else {
+            // Fallback for unknown symbols
+            label = `${sym} – Unknown`;
+        }
+        opt.textContent = label;
+        select.appendChild(opt);
+    }
+    
+    if (currentVal && symbols.has(currentVal)) {
+        select.value = currentVal;
+    }
+}
 
         // Helper function for the new importer
         function parseSpawnsLocal(contentObj) {
@@ -3879,7 +3961,12 @@ function renderPlaceItemsSpawnList() {
 }
 
         function addItemSpawn() {
-            const symbol = itemSymbolInput.value.trim();
+       const select = document.getElementById('item-symbol-select');
+const symbol = select ? select.value : '';
+if (!symbol) {
+    updateStatus("Item: Please select a symbol from the dropdown.", 'text-red-400');
+    return;
+}
             const group = itemGroupInput.value.trim();
             const chance = parseInt(itemChanceInput.value, 10);
             const repeat = parseCoordInput(itemRepeatInput.value);
@@ -4662,7 +4749,27 @@ function downloadExport() {
         if (Object.keys(defs.terrain).length > 0) mapgenPayload.terrain = defs.terrain;
         if (Object.keys(defs.furniture).length > 0) mapgenPayload.furniture = defs.furniture;
         if (l.monsters && l.monsters.length > 0) mapgenPayload.place_monster = l.monsters;
-        if (l.items && l.items.length > 0) mapgenPayload.items = l.items;
+        // Build items (symbol-based) as an object for this layer
+const itemsObject = {};
+if (l.items && l.items.length > 0) {
+    for (const spawn of l.items) {
+        const sym = spawn.symbol || 'i';
+        if (!itemsObject[sym]) itemsObject[sym] = [];
+        itemsObject[sym].push({
+            item: spawn.group,
+            chance: spawn.chance || 100,
+            repeat: spawn.repeat || 1
+        });
+    }
+    for (const sym in itemsObject) {
+        if (itemsObject[sym].length === 1) {
+            itemsObject[sym] = itemsObject[sym][0];
+        }
+    }
+}
+if (Object.keys(itemsObject).length > 0) {
+    mapgenPayload.items = itemsObject;
+}
         if (l.placedItems && l.placedItems.length > 0) mapgenPayload.place_items = l.placedItems;
         if (l.vehicles && l.vehicles.length > 0) {
             mapgenPayload.place_vehicles = l.vehicles
@@ -4839,7 +4946,7 @@ document.getElementById('undo-btn').addEventListener('click', undoLastAction);
 function initApp() {
     // Let changeLayer handle the assignment to your existing 'let mapGrid'
     changeLayer(0); 
-    
+    updateItemSymbolDropdown();
     renderPalette();
     renderGrid(true); // Pass true to force canvas dimension sizing on load
     

@@ -271,6 +271,7 @@
         <ul class="text-sm text-gray-400 mb-6 list-disc list-inside space-y-2">
             <li>Use The +/- buttons to add new layers. Extrude copies tile layout(walls and floors get copied on the new floor)</li>
             <li>Clear layer: empty an entire layer. Delete removes it permanently so it won't show up in final export. You can remake it from scratch but useful for floating structures. Also leaving the tiles on a layer untouched = it does not get exported!</li>
+            <li>IMPORT PALETTE FIRST!!!!!!!!!!!!</li>
             <li>Undo button for undoing the last 3 actions. Whether room creation or accidental strokes.</li>
             <li>You can import palettes and SOME buildings depending on their formatting. Saves a hell of a lot of time.</li>
             <li>Selector tool: drag to select area. Can copy it. Can paste it by holding. Monster and item placement can be done using these selected areas. Vehicles can only be placed inside of a sufficiently big selected area.</li>
@@ -2600,7 +2601,7 @@ function deleteCurrentLayer() {
                     if (mapgenObjects.length === 0) throw new Error("No 'mapgen' objects found.");
 
                     // 2. Reset editor state completely
-                    layers = {}; 
+                    
                     
                     let globalMaxH = 24;
                     let globalMaxW = 24;
@@ -2621,6 +2622,29 @@ function deleteCurrentLayer() {
                     gridColsInput.value = globalMaxW;
                     GRID_ROWS = globalMaxH;
                     GRID_COLS = globalMaxW;
+                   
+                   // --- Resize ALL existing layers to the new dimensions ---
+for (const z in layers) {
+    const layer = layers[z];
+    const oldRows = layer.grid.length;
+    const oldCols = layer.grid[0] ? layer.grid[0].length : 0;
+    if (oldRows !== GRID_ROWS || oldCols !== GRID_COLS) {
+        // Expand grid
+        const newGrid = Array(GRID_ROWS).fill(0).map((_, r) =>
+            Array(GRID_COLS).fill(0).map((__, c) =>
+                (r < oldRows && c < oldCols) ? layer.grid[r][c] : DEFAULT_TILE
+            )
+        );
+        // Expand terrainGrid similarly
+        const newTerrain = Array(GRID_ROWS).fill(0).map((_, r) =>
+            Array(GRID_COLS).fill(0).map((__, c) =>
+                (r < oldRows && c < oldCols) ? layer.terrainGrid[r][c] : DEFAULT_TILE
+            )
+        );
+        layer.grid = newGrid;
+        layer.terrainGrid = newTerrain;
+    }
+}
 
                     // 5. Helper: Extract Z-Level from an ID string
                     const getZ = (idStr) => {
@@ -5314,28 +5338,28 @@ function getNeighbourMask(r, c, def, definitionId) {
     const isTerrainTile = def && def.definition && def.definition.startsWith('t_');
     
     const checkNeighbour = (nr, nc, bit) => {
-        if (nr < 0 || nr >= GRID_ROWS || nc < 0 || nc >= GRID_COLS) return;
-        // Get the terrain symbol under the neighbour (from terrainGrid)
-        const neighbourTerrainSymbol = terrainGrid[nr][nc] || DEFAULT_TILE;
-        const neighbourDef = tileDefinitions[neighbourTerrainSymbol] || MASTER_TILE_DEFINITIONS[neighbourTerrainSymbol];
-        if (!neighbourDef) return;
-        
-        if (isTerrainTile) {
-            // Terrain only connects to other terrain with the same definition
-            if (neighbourDef.definition && neighbourDef.definition.startsWith('t_') && 
-                neighbourDef.definition === definitionId) {
-                mask |= bit;
-            }
-        } else {
-            // Furniture connects to anything with the same definition (including terrain)
-            // For furniture, we keep the original logic: look at the symbol (mapGrid)
-            const neighbourSymbol = mapGrid[nr][nc];
-            const neighbourDef2 = tileDefinitions[neighbourSymbol] || MASTER_TILE_DEFINITIONS[neighbourSymbol];
-            if (neighbourDef2 && neighbourDef2.definition === definitionId) {
-                mask |= bit;
-            }
+    if (nr < 0 || nr >= GRID_ROWS || nc < 0 || nc >= GRID_COLS) return;
+
+    // Use the actual symbol from the terrain grid (or fallback to DEFAULT)
+    const neighbourSymbol = terrainGrid[nr][nc] || DEFAULT_TILE;
+    const neighbourDef = tileDefinitions[neighbourSymbol] || MASTER_TILE_DEFINITIONS[neighbourSymbol];
+
+    // ✅ Null‑check first, then compare definitions
+    if (!neighbourDef || !neighbourDef.definition) return;
+
+    if (isTerrainTile) {
+        // Terrain only connects to same terrain ID
+        if (neighbourDef.definition.startsWith('t_') && neighbourDef.definition === definitionId) {
+            mask |= bit;
         }
-    };
+    } else {
+        // Furniture connects to same furniture ID (or terrain if same symbol)
+        // But we already have the definition; just compare IDs
+        if (neighbourDef.definition === definitionId) {
+            mask |= bit;
+        }
+    }
+};
     
     checkNeighbour(r-1, c, 1); // North
     checkNeighbour(r, c+1, 2); // East
